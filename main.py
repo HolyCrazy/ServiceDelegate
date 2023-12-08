@@ -1,25 +1,28 @@
-from fastapi import FastAPI, HTTPException
+from io import BytesIO
+
+from fastapi import FastAPI
 from pydantic import BaseModel
-import os
-import shutil
-import asyncio
-from git import Repo
+import requests
 
 app = FastAPI()
 
 
-class GitRepo(BaseModel):
-    git_url: str
+class ImageInfo(BaseModel):
+    url: str
 
 
 @app.get("/")
 async def get_main():
-    return {"message": "liduodiyi"}
+    return {"message": "service is running"}
 
 
-@app.post("/liduo/")
-async def print_repo_url(repo: GitRepo):
-    return {"message": "liduozuishuai"}
+@app.post("/ocr/")
+async def print_repo_url(info: ImageInfo):
+    url = info.url
+    response = requests.get(url)
+    image_in_memory = BytesIO(response.content)
+    response = requests.post('https://api.oioweb.cn/api/ocr/recognition', files={'file': image_in_memory})
+    return {"response": response}
 
 
 if __name__ == "__main__":
