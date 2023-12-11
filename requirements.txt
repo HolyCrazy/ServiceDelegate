@@ -3,3 +3,5 @@ gitpython
 pydantic
 uvicorn
 requests
+bs4
+selenium
