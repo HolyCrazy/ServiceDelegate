@@ -100,7 +100,7 @@ async def emoji_service_core(text: str):
     translation = await get_emoji_translation(text)
     prompt = "这是用户当前输入消息对应的Emoji处理。translation是用户当前消息的Emoji翻译，" \
              "images是用户当前消息对应状态的Emoji图片链接。" \
-             "请将translation、emoji_url都为用户展示出来。"
+             "请将translation、emoji_url都为用户展示出来。请将所有的图片都展示出来。"
     result = json.dumps(EmojiJson(prompt, translation, emojiImagesList).__dict__)
     return {"result": json.loads(result)}
 
@@ -161,7 +161,7 @@ async def douyin_service_core(url: str):
     prompt = "这是user_name发布的抖音视频，如果images中有数据，则这个视频是抖音的图文视频，" \
              "images中的image_url是视频中图片的下载链接集合，media_url是视频背景音乐的下载链接。" \
              "如果images中没有数据，则media_url是视频的下载链接。" \
-             "请将user_name、image_url、media_url都为用户展示出来，user_name不是一个可以访问的链接，" \
+             "请将user_name、image_url、media_url都为用户展示出来，请将所有的图片都展示出来，user_name不是一个可以访问的链接，" \
              "请以普通文本的方式展示。"
     if check_music(vid):
         images = video_data['images']
