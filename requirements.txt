@@ -4,3 +4,4 @@ pydantic
 uvicorn
 requests
 bs4
+jieba

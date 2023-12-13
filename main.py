@@ -3,6 +3,11 @@ import requests
 from fastapi import FastAPI
 from pydantic import BaseModel
 import re
+import jieba
+import jieba.analyse
+import jieba.posseg
+from bs4 import BeautifulSoup
+import itertools
 
 app = FastAPI()
 
@@ -11,12 +16,36 @@ class DouYinParam(BaseModel):
     url: str
 
 
+class EmojiParam(BaseModel):
+    text: str
+
+
 class DouYinJson:
-    def __init__(self, prompt, user_name, media_url, images_url):
+    def __init__(self, prompt, user_name, media_url, images):
         self.prompt = prompt
         self.user_name = user_name
         self.media_url = media_url
-        self.images_url = images_url
+        self.images = images
+
+
+class EmojiJson:
+    def __init__(self, prompt, translation, images):
+        self.prompt = prompt
+        self.translation = translation
+        self.images = images
+
+
+EMOJI_JSON_DATA = {}
+
+
+class GlobalEmojiData:
+    def __init__(self):
+        print(EMOJI_JSON_DATA)
+        self.data = EMOJI_JSON_DATA
+
+
+def get_global_emoji_data():
+    return GlobalEmojiData()
 
 
 @app.get("/")
@@ -24,22 +53,89 @@ async def get_main():
     return {"message": "service is running"}
 
 
-@app.get("/video/")
-async def video_service():
-    url = "https://upos-sz-mirrorcos.bilivideo.com/upgcxcode/90/60/1333896090/1333896090-1-192.mp4?e=ig8euxZM2rNcNbRV7bdVhwdlhWdjhwdVhoNvNC8BqJIzNbfqXBvEqxTEto8BTrNvN0GvT90W5JZMkX_YN0MvXg8gNEV4NC8xNEV4N03eN0B5tZlqNxTEto8BTrNvNeZVuJ10Kj_g2UB02J0mN0B5tZlqNCNEto8BTrNvNC7MTX502C8f2jmMQJ6mqF2fka1mqx6gqj0eN0B599M=\u0026uipk=5\u0026nbs=1\u0026deadline=1702356542\u0026gen=playurlv2\u0026os=cosbv\u0026oi=0\u0026trid=2734d6deb1eb454fa9e3b1490ebef500u\u0026mid=10031920\u0026platform=pc\u0026upsig=14a8575ffa2298544798db6ab22c9e5c\u0026uparams=e,uipk,nbs,deadline,gen,os,oi,trid,mid,platform\u0026bvc=vod\u0026nettype=0\u0026orderid=0,3\u0026buvid=A2A051FC-3266-C93B-6CFE-CA06FD97E40A10084infoc\u0026build=0\u0026f=u_0_0\u0026agrr=0\u0026bw=106135\u0026logo=80000000"
+@app.post("/emoji/")
+async def emoji_service(param: EmojiParam):
+    return await emoji_service_core(param.text)
+
+
+async def emoji_service_core(text: str):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.3',
-        'Referer': 'https://www.bilibili.com/video/BV1Pr4y1z7Tf/',
-        'Accept-Encoding': 'gzip'
     }
 
-    response = requests.get(url, headers=headers, stream=True)
+    # 分词Top5
+    subWordList = jieba.analyse.extract_tags(text, topK=5)
 
-    with open("test.flv", 'wb') as file:
-        for chunk in response.iter_content(chunk_size=1024):
-            if chunk:
-                file.write(chunk)
-    return {"result": "success"}
+    finalEmojiList = []
+    # 将每个分词转换成对应的emoji表情
+    for word in subWordList:
+        emojiList = []
+        searchResponse = requests.get(url='https://emojixd.com/search?q=' + word, headers=headers)
+        soup = BeautifulSoup(searchResponse.text, 'html.parser').find('body')
+        divs = soup.find_all('div', class_='emoji left mr2 h1')[:3]
+        for div in divs:
+            emojiList.append(div.text)
+        finalEmojiList.append(emojiList)
+
+    # 过滤空的元素
+    finalEmojiList = list(filter(None, finalEmojiList))
+
+    if len(finalEmojiList) == 1:
+        finalEmojiList.append(finalEmojiList[0])
+
+    # 两两组合
+    combinedEmojiData = itertools.combinations(finalEmojiList, 2)
+
+    emojiImagesList = []
+    for emojiTuple in combinedEmojiData:
+        firstEmojiList = emojiTuple[0]
+        secondEmojiList = emojiTuple[1]
+        combinedEmojiList = list(itertools.product(firstEmojiList, secondEmojiList))
+        for t in combinedEmojiList:
+            url = get_url_from_emoji_kitchen(t[0], t[1])
+            if url:
+                emojiImagesList.append({"emoji_url": url})
+
+    # 整句翻译
+    translation = await get_emoji_translation(text)
+    prompt = "这是用户当前输入消息对应的Emoji处理。translation是用户当前消息的Emoji翻译，" \
+             "images是用户当前消息对应状态的Emoji图片链接。" \
+             "请将translation、emoji_url都为用户展示出来。"
+    result = json.dumps(EmojiJson(prompt, translation, emojiImagesList).__dict__)
+    return {"result": json.loads(result)}
+
+
+async def get_emoji_translation(text: str):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.3',
+    }
+    url = "https://www.qudou100.com/apis/yule/wordtoemjio"
+    data = {
+        'word': text
+    }
+    response = requests.post(url, headers=headers, data=data)
+    return json.loads(response.text)['data']
+
+
+def get_url_from_emoji_kitchen(firstEmoji: str, secondEmoji: str):
+    emojiJson = get_emoji_json()
+    knownSupportedEmoji = emojiJson['knownSupportedEmoji']
+    emojiData = emojiJson['data']
+
+    firstEmojiUnicode = emoji_to_unicode(firstEmoji)
+    secondEmojiUnicode = emoji_to_unicode(secondEmoji)
+
+    result = {}
+    if firstEmojiUnicode in knownSupportedEmoji:
+        result = get_composed_emoji_url(emojiData[firstEmojiUnicode], secondEmojiUnicode)
+
+    if not result and secondEmojiUnicode in knownSupportedEmoji:
+        result = get_composed_emoji_url(emojiData[secondEmojiUnicode], firstEmojiUnicode)
+
+    url = ""
+    if result:
+        url = result['gStaticUrl']
+    return url
 
 
 @app.post("/douyin/")
@@ -62,18 +158,20 @@ async def douyin_service_core(url: str):
     vid = video_data['video']['play_addr']['uri']
     user_name = video_data['author']['nickname']
 
-    prompt = "这是user_name发布的抖音视频，如果images_url中有数据，则这个视频是抖音的图文视频，" + \
-             "images_url是视频中图片的下载链接集合，media_url是视频背景音乐的下载链接。" + \
-             "如果images_url中没有数据，则media_url是视频的下载链接。" + \
-             "请将user_name、images_url、media_url都为用户展示出来，user_name不是一个可以访问的链接，" \
+    prompt = "这是user_name发布的抖音视频，如果images中有数据，则这个视频是抖音的图文视频，" \
+             "images中的image_url是视频中图片的下载链接集合，media_url是视频背景音乐的下载链接。" \
+             "如果images中没有数据，则media_url是视频的下载链接。" \
+             "请将user_name、image_url、media_url都为用户展示出来，user_name不是一个可以访问的链接，" \
              "请以普通文本的方式展示。"
-    if check_url(vid):
-        images = json.loads(video_info_resp.text)['item_list'][0]['images']
+    if check_music(vid):
+        images = video_data['images']
         image_url_list = []
         for image in images:
-            image_url_list.append({"image": image['url_list'][0]})
-
-        result = json.dumps(DouYinJson(prompt, user_name, vid, image_url_list).__dict__)
+            image_url_list.append({"image_url": image['url_list'][0]})
+        audio_url = vid
+        if not check_url(vid):
+            audio_url = "https://www.iesdouyin.com/aweme/v1/play/?ratio=1080p&line=0&video_id=" + vid
+        result = json.dumps(DouYinJson(prompt, user_name, audio_url, image_url_list).__dict__)
         return {"result": json.loads(result)}
     else:
         video_url = "https://www.iesdouyin.com/aweme/v1/play/?ratio=1080p&line=0&video_id=" + vid
@@ -81,8 +179,15 @@ async def douyin_service_core(url: str):
         return {"result": json.loads(result)}
 
 
-def check_url(url):
+def check_url(url: str):
     if url.startswith("http") or url.startswith("https"):
+        return True
+    else:
+        return False
+
+
+def check_music(vid: str):
+    if 'mp3' in vid or 'music' in vid:
         return True
     else:
         return False
@@ -98,6 +203,30 @@ def find_video_id(url):
     pattern = r'video/(\d+)/'
     urls = re.findall(pattern, url)
     return urls
+
+
+def read_json_file(filename):
+    with open(filename, 'r') as f:
+        data = json.load(f)
+    return data
+
+
+def emoji_to_unicode(emoji_str):
+    return hex(ord(emoji_str))[2:].zfill(4)
+
+
+def get_emoji_json():
+    global EMOJI_JSON_DATA
+    if not EMOJI_JSON_DATA:
+        EMOJI_JSON_DATA = read_json_file("metadata.json")
+    return EMOJI_JSON_DATA
+
+
+def get_composed_emoji_url(data: dict, emojiCode: str):
+    for item in data['combinations']:
+        if item['leftEmojiCodepoint'] == emojiCode:
+            return item
+    return {}
 
 
 if __name__ == "__main__":
