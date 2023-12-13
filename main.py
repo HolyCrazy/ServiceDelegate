@@ -35,13 +35,14 @@ class EmojiJson:
         self.images = images
 
 
-EMOJI_JSON_DATA = {}
+COMBINED_EMOJI = {}
+SUPPORTED_EMOJI = {}
 
 
 class GlobalEmojiData:
     def __init__(self):
-        print(EMOJI_JSON_DATA)
-        self.data = EMOJI_JSON_DATA
+        self.supportedEmoji = SUPPORTED_EMOJI
+        self.combinedEmoji = COMBINED_EMOJI
 
 
 def get_global_emoji_data():
@@ -72,14 +73,16 @@ async def emoji_service_core(text: str):
         emojiList = []
         searchResponse = requests.get(url='https://emojixd.com/search?q=' + word, headers=headers)
         soup = BeautifulSoup(searchResponse.text, 'html.parser').find('body')
-        divs = soup.find_all('div', class_='emoji left mr2 h1')[:3]
+        divs = soup.find_all('div', class_='emoji left mr2 h1')[:5]
         for div in divs:
+            print(div.text)
             emojiList.append(div.text)
         finalEmojiList.append(emojiList)
 
     # 过滤空的元素
     finalEmojiList = list(filter(None, finalEmojiList))
 
+    print("emoji_list", finalEmojiList)
     if len(finalEmojiList) == 1:
         finalEmojiList.append(finalEmojiList[0])
 
@@ -98,9 +101,18 @@ async def emoji_service_core(text: str):
 
     # 整句翻译
     translation = await get_emoji_translation(text)
+    if len(emojiImagesList) < 3:
+        emojiTranslation = list(filter_emoji(translation))
+        combinedEmojiList = list(itertools.product(emojiTranslation, emojiTranslation))
+        for t in combinedEmojiList:
+            url = get_url_from_emoji_kitchen(t[0], t[1])
+            if url:
+                emojiImagesList.append({"emoji_url": url})
+
     prompt = "这是用户当前输入消息对应的Emoji处理。translation是用户当前消息的Emoji翻译，" \
              "images是用户当前消息对应状态的Emoji图片链接。" \
-             "请将translation、emoji_url都为用户展示出来。请将所有的图片都展示出来。"
+             "请将translation、emoji_url都为用户展示出来。请将所有的图片都展示出来。" \
+             "请直接告诉用户[当前消息对应的emoji为translation]。"
     result = json.dumps(EmojiJson(prompt, translation, emojiImagesList).__dict__)
     return {"result": json.loads(result)}
 
@@ -118,23 +130,22 @@ async def get_emoji_translation(text: str):
 
 
 def get_url_from_emoji_kitchen(firstEmoji: str, secondEmoji: str):
-    emojiJson = get_emoji_json()
-    knownSupportedEmoji = emojiJson['knownSupportedEmoji']
-    emojiData = emojiJson['data']
+    emojiData = get_emoji_json()['data']
+    knownSupportedEmoji = get_supported_emoji()['knownSupportedEmoji']
 
     firstEmojiUnicode = emoji_to_unicode(firstEmoji)
     secondEmojiUnicode = emoji_to_unicode(secondEmoji)
 
-    result = {}
-    if firstEmojiUnicode in knownSupportedEmoji:
-        result = get_composed_emoji_url(emojiData[firstEmojiUnicode], secondEmojiUnicode)
-
-    if not result and secondEmojiUnicode in knownSupportedEmoji:
-        result = get_composed_emoji_url(emojiData[secondEmojiUnicode], firstEmojiUnicode)
+    if firstEmojiUnicode == '' or secondEmojiUnicode == '':
+        return ''
 
     url = ""
-    if result:
-        url = result['gStaticUrl']
+    if firstEmojiUnicode in knownSupportedEmoji:
+        url = get_composed_emoji_url(emojiData[firstEmojiUnicode], firstEmojiUnicode, secondEmojiUnicode)
+
+    if not url and secondEmojiUnicode in knownSupportedEmoji:
+        url = get_composed_emoji_url(emojiData[secondEmojiUnicode], secondEmojiUnicode, firstEmojiUnicode)
+
     return url
 
 
@@ -212,21 +223,37 @@ def read_json_file(filename):
 
 
 def emoji_to_unicode(emoji_str):
+    if len(emoji_str) != 1:
+        return ''
     return hex(ord(emoji_str))[2:].zfill(4)
 
 
 def get_emoji_json():
-    global EMOJI_JSON_DATA
-    if not EMOJI_JSON_DATA:
-        EMOJI_JSON_DATA = read_json_file("metadata.json")
-    return EMOJI_JSON_DATA
+    global COMBINED_EMOJI
+    if not COMBINED_EMOJI:
+        COMBINED_EMOJI = read_json_file("emoji_data.json")
+    return COMBINED_EMOJI
 
 
-def get_composed_emoji_url(data: dict, emojiCode: str):
+def get_supported_emoji():
+    global SUPPORTED_EMOJI
+    if not SUPPORTED_EMOJI:
+        SUPPORTED_EMOJI = read_json_file("supported_emoji.json")
+    return SUPPORTED_EMOJI
+
+
+def get_composed_emoji_url(data: dict, firstEmojiCode: str, secondEmojiCode: str):
     for item in data['combinations']:
-        if item['leftEmojiCodepoint'] == emojiCode:
-            return item
-    return {}
+        if item['leftEmojiCodepoint'] == secondEmojiCode:
+            return "https://www.gstatic.com/android/keyboard/emojikitchen/" + item['date'] + \
+                   '/u' + item['leftEmojiCodepoint'] + "/u" + item['leftEmojiCodepoint'] + '_u' + \
+                   firstEmojiCode + ".png"
+    return ''
+
+
+def filter_emoji(src):
+    emoji_pattern = re.compile(u'[\U0001F300-\U0001F7D9]')
+    return "".join(emoji_pattern.findall(src))
 
 
 if __name__ == "__main__":
