@@ -104,23 +104,23 @@ async def emoji_service_core(text: str):
             emojiImagesList.append({"image_url": url})
 
     # 获取推荐表情包
-    recommendEmojiList = await emoji_search_service(text, 0, 30)
+    recommendEmojiList = await emoji_search_service(text, 1)
+    # 乱序
+    random.shuffle(recommendEmojiList)
     # 去除无法访问的URL
-    recommendEmojiList = list(filter(lambda x: url_valid(x['image_url']), recommendEmojiList))
+    # recommendEmojiList = list(filter(lambda x: url_valid(x['image_url']), recommendEmojiList))
     # 推荐数量
     if not emojiImagesList:
         recommendEmojiList = recommendEmojiList[:10]
     else:
         recommendEmojiList = recommendEmojiList[:5]
-    # 乱序
-    random.shuffle(recommendEmojiList)
 
     # 去重
     emojiImagesList = list({v['image_url']: v for v in emojiImagesList}.values())
-    # 去除无法访问的URL
-    emojiImagesList = list(filter(lambda x: url_valid(x['image_url']), emojiImagesList))[:10]
     # 乱序
     random.shuffle(emojiImagesList)
+    # 去除无法访问的URL
+    emojiImagesList = list(filter(lambda x: url_valid(x['image_url']), emojiImagesList))[:10]
     prompt = "这是用户当前输入消息对应的Emoji处理。translation是用户当前消息的Emoji翻译，" \
              "emoji_images是用户当前消息对应状态的Emoji图片。" \
              "recommend_images是针对当前消息推荐的表情包" \
@@ -143,20 +143,16 @@ async def emoji_translation_service(text: str):
 
 
 @app.get('/emoji_search/')
-async def emoji_search_service(text: str, start: int = 0, limit: int = 30):
-    url = 'https://doutu.lccyy.com/doutu/all'
-    data = {
-        'ac': 'search',
-        'start': start,
-        'limit': limit,
-        'keyword': text
-    }
-    response = requests.post(url=url, headers=COMMON_HEADER, data=data)
-    item_info = json.loads(response.text)['items']
-    result = []
-    for info in item_info:
-        result.append({"image_url": info['url']})
-    return result
+async def emoji_search_service(text: str, page: int):
+    url = 'https://www.doutula.com/search?type=photo&keyword=' + text + '&page=' + str(page) + '&more=1'
+    response = requests.get(url, headers=COMMON_HEADER)
+
+    soup = BeautifulSoup(response.text, 'html.parser').find('body').find('div', {'class': 'random_picture'})
+    a_tags = soup.findAll('a', {'class': 'col-xs-6 col-md-2'})
+    img_tags = soup.findAll('img')
+    images_list = [{'image_url': tag['data-original']} for tag in img_tags if 'data-original' in tag.attrs]
+
+    return images_list
 
 
 @app.get('/emoji_kitchen/')
@@ -302,7 +298,7 @@ def filter_emoji(text: str):
 # 验证URL是否可以访问
 def url_valid(url: str):
     try:
-        response = requests.get(url, headers=COMMON_HEADER, timeout=3)
+        response = requests.head(url, headers=COMMON_HEADER, timeout=2)
         if response.status_code == 200:
             return True
         else:

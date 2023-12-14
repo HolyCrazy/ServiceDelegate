@@ -57,3 +57,18 @@
 #     }
 #     response = requests.post(url, headers=COMMON_HEADER, data=data)
 #     return json.loads(response.text)['data']
+
+# async def emoji_search_service(text: str, start: int = 0, limit: int = 30):
+#     url = 'https://doutu.lccyy.com/doutu/all'
+#     data = {
+#         'ac': 'search',
+#         'start': start,
+#         'limit': limit,
+#         'keyword': text
+#     }
+#     response = requests.post(url=url, headers=COMMON_HEADER, data=data)
+#     item_info = json.loads(response.text)['items']
+#     result = []
+#     for info in item_info:
+#         result.append({"image_url": info['url']})
+#     return result
