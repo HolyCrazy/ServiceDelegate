@@ -118,14 +118,17 @@ async def emoji_service_core(text: str):
     # 去重
     emojiImagesList = list({v['image_url']: v for v in emojiImagesList}.values())
     # 去除无法访问的URL
-    emojiImagesList = list(filter(lambda x: url_valid(x['image_url']), emojiImagesList))
+    emojiImagesList = list(filter(lambda x: url_valid(x['image_url']), emojiImagesList))[:10]
     # 乱序
     random.shuffle(emojiImagesList)
-    # prompt = "这是用户当前输入消息对应的Emoji处理。translation是用户当前消息的Emoji翻译，" \
-    #          "images是用户当前消息对应状态的Emoji图片链接。" \
-    #          "请将translation、image_url都为用户展示出来。请将所有的图片都展示出来。" \
-    #          "请直接告诉用户[当前消息对应的emoji为translation]。"
-    result = json.dumps(EmojiJson('', translation, emojiImagesList, recommendEmojiList).__dict__)
+    prompt = "这是用户当前输入消息对应的Emoji处理。translation是用户当前消息的Emoji翻译，" \
+             "emoji_images是用户当前消息对应状态的Emoji图片。" \
+             "recommend_images是针对当前消息推荐的表情包" \
+             "请将translation、image_url都为用户展示出来，" \
+             "优先展示emoji_images中的image_url。" \
+             "请将所有的图片都展示出来。" \
+             "请直接告诉用户[当前消息对应的emoji为translation]。"
+    result = json.dumps(EmojiJson(prompt, translation, emojiImagesList, recommendEmojiList).__dict__)
     return {"result": json.loads(result)}
 
 
