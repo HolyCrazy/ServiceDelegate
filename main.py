@@ -54,12 +54,65 @@ async def get_main():
     return {"message": "service is running"}
 
 
+async def emoji_service_core_v2(text: str):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.3',
+    }
+    # 原始Emoji
+    sourceEmojiList = list(filter_emoji(text))
+    # 整句Emoji翻译
+    translation = await get_emoji_translation(text)
+    # 分词Top5
+    subWordList = jieba.analyse.extract_tags(text, topK=5)
+    # 合并列表
+    finalEmojiList = []
+    finalEmojiList.extend(sourceEmojiList)
+    # 过滤翻译中的非Emoji字符
+    finalEmojiList.extend(list(filter_emoji(translation)))
+
+    # 将每个分词转换成对应的emoji表情
+    for word in subWordList:
+        searchResponse = requests.get(url='https://emojixd.com/search?q=' + word, headers=headers)
+        soup = BeautifulSoup(searchResponse.text, 'html.parser').find('body')
+        divs = soup.find_all('div', class_='emoji left mr2 h1')[:5]
+        for div in divs:
+            finalEmojiList.append(div.text)
+
+    # 过滤空元素
+    finalEmojiList = list(filter(None, finalEmojiList))
+    # 去重
+    finalEmojiList = list(set(finalEmojiList))
+    # 去掉组合Emoji
+    finalEmojiList = list(filter(lambda emoji: len(emoji) <= 1, finalEmojiList))
+
+    # 保证组合长度
+    if len(finalEmojiList) == 1:
+        finalEmojiList.append(finalEmojiList[0])
+
+    # 两两组合
+    combinedEmojiData = itertools.combinations(finalEmojiList, 2)
+    # 获取Url
+    emojiImagesList = []
+    for emojiTuple in combinedEmojiData:
+        url = get_url_from_emoji_kitchen(emojiTuple[0], emojiTuple[1])
+        if url:
+            emojiImagesList.append({"emoji_url": url})
+    # 去重
+    emojiImagesList = list({v['emoji_url']: v for v in emojiImagesList}.values())
+    prompt = "这是用户当前输入消息对应的Emoji处理。translation是用户当前消息的Emoji翻译，" \
+             "images是用户当前消息对应状态的Emoji图片链接。" \
+             "请将translation、emoji_url都为用户展示出来。请将所有的图片都展示出来。" \
+             "请直接告诉用户[当前消息对应的emoji为translation]。"
+    result = json.dumps(EmojiJson(prompt, translation, emojiImagesList).__dict__)
+    return {"result": json.loads(result)}
+
+
 @app.post("/emoji/")
 async def emoji_service(param: EmojiParam):
-    return await emoji_service_core(param.text)
+    return await emoji_service_core_v2(param.text)
 
 
-async def emoji_service_core(text: str):
+async def emoji_service_core_v1(text: str):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.3',
     }
@@ -75,14 +128,12 @@ async def emoji_service_core(text: str):
         soup = BeautifulSoup(searchResponse.text, 'html.parser').find('body')
         divs = soup.find_all('div', class_='emoji left mr2 h1')[:5]
         for div in divs:
-            print(div.text)
             emojiList.append(div.text)
         finalEmojiList.append(emojiList)
 
     # 过滤空的元素
     finalEmojiList = list(filter(None, finalEmojiList))
 
-    print("emoji_list", finalEmojiList)
     if len(finalEmojiList) == 1:
         finalEmojiList.append(finalEmojiList[0])
 
