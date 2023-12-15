@@ -202,7 +202,8 @@ async def douyin_service_core(url: str):
              "如果images中没有数据，则media_url是视频的下载链接。" \
              "请将user_name、image_url、media_url都为用户展示出来，请将所有的图片都展示出来，user_name不是一个可以访问的链接，" \
              "请以普通文本的方式展示。"
-    if check_douyin_music(vid):
+
+    if check_douyin_music(vid) or check_url(vid):
         images = video_data['images']
         image_url_list = []
         for image in images:
