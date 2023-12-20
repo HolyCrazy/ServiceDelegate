@@ -31,21 +31,12 @@ class EmojiJson:
 
 COMBINED_EMOJI = {}
 SUPPORTED_EMOJI = {}
+WORD_2_EMOJI = {}
 
 COMMON_HEADER = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)'
                   ' Chrome/74.0.3729.169 Safari/537.3',
 }
-
-
-class GlobalEmojiData:
-    def __init__(self):
-        self.supportedEmoji = SUPPORTED_EMOJI
-        self.combinedEmoji = COMBINED_EMOJI
-
-
-def get_global_emoji_data():
-    return GlobalEmojiData()
 
 
 @app.get("/")
@@ -132,7 +123,6 @@ async def emoji_service_core(text: str):
     return {"result": json.loads(result)}
 
 
-@app.get('/emoji_translation/')
 async def emoji_translation_service(text: str):
     url = 'https://www.emojiall.com/zh-hans/text-to-emoji'
     data = {
@@ -142,13 +132,67 @@ async def emoji_translation_service(text: str):
     return json.loads(response.text)['data']
 
 
+@app.get('/emoji_translation/')
+async def emoji_translation_service_v2(text: str):
+    newData = get_word2emoji()
+    wordList = jieba.lcut(text)
+    result = ''
+    for word in wordList:
+        if word in newData:
+            result += newData[word]
+        else:
+            charList = list(word)
+            for char in charList:
+                if char in newData:
+                    result += newData[char]
+                else:
+                    result += char
+    return {"result": result}
+
+
+# @app.get('/test/')
+async def create_emoji_data_service(text: str):
+    keyDict = read_json_file('key.json')
+
+    for i in range(1, 6):
+        sentenceJson = await get_sentence(text, i)
+        sentenceData = json.loads(sentenceJson)['data']['ret_array'][0]['list']
+        for bd in sentenceData:
+            sentence = bd['body'][0]
+            wordList = jieba.lcut(sentence)
+            for word in wordList:
+                keyDict[word] = 'emoji'
+
+    save_json(keyDict, 'key.json')
+
+    newData = read_json_file('word2emoji.json')
+    i = 0
+    for key, value in keyDict.items():
+        i = i + 1
+        print(str(i))
+        if key in newData:
+            continue
+        emoji = await emoji_translation_service(key)
+        newData[key] = emoji
+        if i % 10 == 0:
+            save_json(newData, "word2emoji.json")
+    save_json(newData, "word2emoji.json")
+    return {"result": 'success'}
+
+
+async def get_sentence(word: str, page: int):
+    url = 'https://hanyu.baidu.com/hanyu/api/sentencelistv2?' + "query=" + word + "&" + \
+          "src_id=51328&" + "query_type=exact&" + "type=sentence&" + "ps=20&" + "pn=" + str(page)
+    response = requests.get(url, headers=COMMON_HEADER)
+    return response.text
+
+
 @app.get('/emoji_search/')
 async def emoji_search_service(text: str, page: int):
     url = 'https://www.doutula.com/search?type=photo&keyword=' + text + '&page=' + str(page) + '&more=1'
     response = requests.get(url, headers=COMMON_HEADER)
 
     soup = BeautifulSoup(response.text, 'html.parser').find('body').find('div', {'class': 'random_picture'})
-    a_tags = soup.findAll('a', {'class': 'col-xs-6 col-md-2'})
     img_tags = soup.findAll('img')
     images_list = [{'image_url': tag['data-original']} for tag in img_tags if 'data-original' in tag.attrs]
 
@@ -280,6 +324,14 @@ def get_supported_emoji():
     return SUPPORTED_EMOJI
 
 
+# 获取中文词汇对应的Emoji字典
+def get_word2emoji():
+    global WORD_2_EMOJI
+    if not WORD_2_EMOJI:
+        WORD_2_EMOJI = read_json_file("word2emoji.json")
+    return WORD_2_EMOJI
+
+
 # 拼接合成后的Emoji的URL
 def compose_emoji_url(data: dict, firstEmojiCode: str, secondEmojiCode: str):
     for item in data['combinations']:
@@ -306,6 +358,15 @@ def url_valid(url: str):
             return False
     except Exception as _:
         return False
+
+
+# 保存json文件
+def save_json(data, file_name):
+    if not file_name.endswith('.json'):
+        file_name += '.json'
+
+    with open(file_name, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 
 if __name__ == "__main__":
