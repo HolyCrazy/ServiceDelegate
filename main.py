@@ -174,7 +174,7 @@ async def create_emoji_data_service(text: str):
             continue
         emoji = await emoji_translation_service(key)
         newData[key] = emoji
-        if i % 10 == 0:
+        if i % 50 == 0:
             save_json(newData, "word2emoji.json")
     save_json(newData, "word2emoji.json")
     return {"result": 'success'}
